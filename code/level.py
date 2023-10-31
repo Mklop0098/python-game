@@ -1,12 +1,34 @@
 import pygame 
-from support import import_csv_layout, import_cut_graphics
+from support import import_csv_layout, import_cut_graphics, import_folder
 from settings import tile_size, screen_height, screen_width
-from tiles import Tile, StaticTile, Crate, Coin, Palm
+from tiles import Tile, StaticTile, Crate, Coin, Palm, AnimatedTile
 from enemy import Enemy
 from decoration import Sky, Water, Clouds
 from player import Player
 from particles import ParticleEffect
 from game_data import levels
+
+
+bullet_image = pygame.image.load("./graphics/bullet/bullet.png")
+class Bullet(AnimatedTile):
+	def __init__(self, x, y, direction):
+		self.rect = pygame.Rect(x, y, 10, 10)
+		self.direction = direction
+		self.bullet_speed = 10
+		self.frames = import_folder('./graphics/animation')
+		self.frame_index = 0
+		self.image = self.frames[self.frame_index]		
+	def animate(self):
+		self.frame_index += 0.15
+		if self.frame_index >= len(self.frames):
+			self.frame_index = 0
+		self.image = self.frames[int(self.frame_index)]
+
+	def update(self):
+		self.animate()
+		if self.direction == "left":
+			self.rect.x -= self.bullet_speed 
+		else: self.rect.x += self.bullet_speed
 
 class Level:
 	def __init__(self,current_level,surface,create_overworld,change_coins,change_health,create_menu):
@@ -14,6 +36,9 @@ class Level:
 		self.display_surface = surface
 		self.world_shift = 0
 		self.current_x = None
+		self.bullets = []
+		self.bullet_cooldown = 500 
+		self.last_bullet_time = 0
 
 		# audio 
 		self.coin_sound = pygame.mixer.Sound('./audio/effects/coin.wav')
@@ -227,6 +252,42 @@ class Level:
 			self.coin_sound.play()
 			for coin in collided_coins:
 				self.change_coins(coin.value)
+	
+	def check_crate_collisions(self):
+
+		collided_crate = pygame.sprite.spritecollide(self.player.sprite,self.crate_sprites,False)
+		collidable_sprites = self.terrain_sprites.sprites()
+
+		if collided_crate:
+			for crate in collided_crate:
+				crate_left = crate.rect.left
+				crate_right = crate.rect.right
+				player_left = self.player.sprite.rect.left
+				player_right = self.player.sprite.rect.right
+				if crate_left < player_right < crate_right:
+					crate.rect.x += 2
+					for sprite in collidable_sprites:
+						if sprite.rect.colliderect(crate.rect):
+							if crate.rect.bottom - sprite.rect.top > 5:
+								crate.rect.right = sprite.rect.left
+							
+				if crate_right > player_left > crate_left:
+					crate.rect.x -= 2
+					for sprite in collidable_sprites:
+						if sprite.rect.colliderect(crate.rect):
+							if crate.rect.bottom - sprite.rect.top > 5:
+								crate.rect.left = sprite.rect.right
+				
+		for crate in self.crate_sprites.sprites():
+			collided = 0
+			for sprite in collidable_sprites:
+				if sprite.rect.colliderect(crate.rect):
+					collided += 1
+			if collided == 0:
+				crate.rect.y += 5
+		
+		
+		
 
 	def check_enemy_collisions(self):
 		enemy_collisions = pygame.sprite.spritecollide(self.player.sprite,self.enemy_sprites,False)
@@ -305,6 +366,57 @@ class Level:
 
 		self.check_coin_collisions()
 		self.check_enemy_collisions()
+		self.check_crate_collisions()
 
 		# water 
 		self.water.draw(self.display_surface,self.world_shift)
+		keys = pygame.key.get_pressed()
+		current_time = pygame.time.get_ticks()
+		if keys[pygame.K_SPACE] and current_time - self.last_bullet_time >= self.bullet_cooldown:
+			if self.player.sprite.facing_right:
+				bullet = Bullet(self.player.sprite.rect.left, self.player.sprite.rect.y + 15, "right")
+			else:
+				bullet = Bullet(self.player.sprite.rect.x, self.player.sprite.rect.y + 15, "left")
+			self.bullets.append(bullet)
+			self.last_bullet_time = current_time
+
+    # Cập nhật vị trí của các viên đạn
+		collidable_sprites = self.terrain_sprites.sprites()
+		for bullet in self.bullets:
+			bullet.update()
+			for sprite in collidable_sprites:
+				if bullet.rect.colliderect(sprite.rect):
+					if bullet in self.bullets:
+						self.bullets.remove(bullet)
+			enemy_collisions = pygame.sprite.spritecollide(bullet,self.enemy_sprites,False)
+			if enemy_collisions:
+				for enemy in enemy_collisions:
+					self.stomp_sound.play()
+					explosion_sprite = ParticleEffect(enemy.rect.center,'explosion')
+					self.explosion_sprites.add(explosion_sprite)
+					enemy.kill()
+					if bullet in self.bullets:
+						self.bullets.remove(bullet)
+			crate_collisions = pygame.sprite.spritecollide(bullet,self.crate_sprites,False)
+			if crate_collisions:
+				for crate in crate_collisions:
+					self.stomp_sound.play()
+					explosion_sprite = ParticleEffect(crate.rect.center,'explosion')
+					self.explosion_sprites.add(explosion_sprite)
+					crate.kill()
+					if bullet in self.bullets:
+						self.bullets.remove(bullet)
+
+
+		# Xóa các viên đạn nếu chúng ra khỏi màn hình
+		self.bullets = [bullet for bullet in self.bullets if bullet.rect.y > 0]
+
+		# Vẽ nền trắng
+
+		# Vẽ đối tượng người chơi
+		# Vẽ các viên đạn
+		for bullet in self.bullets:
+			# pygame.draw.rect(self.display_surface, 'green', bullet.rect)
+			self.display_surface.blit(bullet.image, bullet)
+
+

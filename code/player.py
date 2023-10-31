@@ -20,7 +20,7 @@ class Player(pygame.sprite.Sprite):
 
 		# player movement
 		self.direction = pygame.math.Vector2(0,0)
-		self.speed = 8
+		self.speed = 0
 		self.gravity = 0.8
 		self.jump_speed = -16
 		self.collision_rect = pygame.Rect(self.rect.topleft,(50,self.rect.height))
@@ -111,6 +111,7 @@ class Player(pygame.sprite.Sprite):
 		if keys[pygame.K_UP] and self.on_ground:
 			self.jump()
 			self.create_jump_particles(self.rect.midbottom)
+		
 
 	def get_status(self):
 		if self.direction.y < 0:
